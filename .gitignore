@@ -1,3 +1,4 @@
 .env
 /venv
 git_monitor.log
+__pycache__

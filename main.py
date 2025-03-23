@@ -15,7 +15,7 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('git_monitor.log')
+        logging.FileHandler('git_monitor.log', encoding='utf-8')
     ]
 )
 logger = logging.getLogger(__name__)

@@ -3,6 +3,7 @@ from typing import List, Dict
 from crewai import Agent, Task, Crew
 from langchain.tools import Tool
 from langchain_openai import ChatOpenAI
+from .claude_client import ClaudeClient
 import logging
 from datetime import datetime
 
@@ -10,17 +11,27 @@ logger = logging.getLogger(__name__)
 
 class CrewAnalyzer:
     def __init__(self):
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            logger.error("No se encontró OPENAI_API_KEY en las variables de entorno")
-            raise ValueError("OPENAI_API_KEY no está configurada")
-            
-        logger.info("Inicializando CrewAnalyzer")
-        self.llm = ChatOpenAI(
-            model_name="gpt-3.5-turbo",  # Usando gpt-3.5 que es más económico
-            temperature=0,
-            api_key=api_key
-        )
+        self.ai_provider = os.getenv('AI_PROVIDER', 'openai').lower()
+        
+        if self.ai_provider == 'openai':
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                logger.error("No se encontró OPENAI_API_KEY en las variables de entorno")
+                raise ValueError("OPENAI_API_KEY no está configurada")
+                
+            logger.info("Inicializando CrewAnalyzer con OpenAI")
+            self.llm = ChatOpenAI(
+                model_name="gpt-3.5-turbo",
+                temperature=0,
+                api_key=api_key
+            )
+        elif self.ai_provider == 'claude':
+            logger.info("Inicializando CrewAnalyzer con Claude")
+            claude_client = ClaudeClient()
+            self.llm = claude_client.llm
+        else:
+            logger.error(f"Proveedor de AI no válido: {self.ai_provider}")
+            raise ValueError(f"AI_PROVIDER debe ser 'openai' o 'claude', no '{self.ai_provider}'")
 
     def format_changes_for_analysis(self, changes: List[Dict]) -> str:
         """Formatea los cambios para un mejor análisis"""
