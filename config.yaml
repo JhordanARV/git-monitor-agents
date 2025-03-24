@@ -7,9 +7,9 @@ modules:
   CodeReviewer:
     enabled: true
     review_types:
-    - quality
-    - security
-    - performance
+    - python
+    - javascript
+    - typescript
     severity_threshold: low
     suggest_fixes: true
   CommitMessageGenerator:
@@ -29,6 +29,7 @@ modules:
     languages:
     - python
     - javascript
+    - typescript
   ImpactAnalyzer:
     analyze_dependencies: true
     enabled: true

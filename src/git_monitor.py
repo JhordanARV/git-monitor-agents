@@ -149,35 +149,79 @@ class GitMonitor:
                         'type': 'commit',
                         'sha': commit.hexsha,
                         'author': commit.author.name,
+                        'email': commit.author.email,
                         'message': commit.message,
-                        'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'files': list(commit.stats.files.keys()),
-                        'stats': commit.stats.total,
+                        'date': datetime.fromtimestamp(commit.committed_date).strftime('%Y-%m-%d %H:%M:%S'),
                         'diffs': diffs
                     })
                 
-                if commit_changes:
-                    changes['commits'] = commit_changes
-                    self.last_commit_sha = current_sha
-
-            # Check for local changes
+                changes['commits'] = commit_changes
+                self.last_commit_sha = current_sha
+            
+            # Verificar cambios en el área de staging (git add)
+            staged_changes = self.check_staged_changes()
+            if staged_changes:
+                changes['staged'] = staged_changes
+                logger.info(f"Detectados {len(staged_changes)} archivos en staging area")
+            
+            # Añadir cambios locales si existen
             if self.file_changes:
-                logger.info(f"Procesando {len(self.file_changes)} cambios locales")
-                # Hacer una copia y solo limpiar si se procesan correctamente
-                current_changes = self.file_changes.copy()
-                changes['local_changes'] = current_changes
+                changes['local_changes'] = self.file_changes
+                self.file_changes = []  # Reset local changes after reporting
                 
-                # Solo limpiar los cambios si se agregaron correctamente al diccionario
-                if changes.get('local_changes'):
-                    self.file_changes = []
-                    logger.info("Cambios locales procesados y limpiados")
-                else:
-                    logger.warning("No se pudieron procesar los cambios locales correctamente")
-
-            if changes:
-                logger.info(f"Se encontraron cambios: {list(changes.keys())}")
             return changes if changes else None
             
         except Exception as e:
-            logger.exception(f"Error al verificar cambios: {e}")
+            logger.error(f"Error al verificar cambios: {e}")
             return None
+            
+    def check_staged_changes(self) -> List[Dict]:
+        """
+        Verifica si hay cambios en el área de staging (después de git add)
+        Retorna una lista de diccionarios con información sobre los archivos en stage
+        """
+        try:
+            # Obtener la lista de archivos en staging area
+            staged_files = []
+            staged_output = self.repo.git.diff('--name-status', '--staged').splitlines()
+            
+            for line in staged_output:
+                if not line.strip():
+                    continue
+                    
+                parts = line.split('\t')
+                if len(parts) >= 2:
+                    status = parts[0].strip()
+                    file_path = parts[1].strip()
+                    
+                    # Determinar el tipo de evento basado en el estado de Git
+                    event_type = 'modified'  # Por defecto
+                    if status == 'A':
+                        event_type = 'created'
+                    elif status == 'D':
+                        event_type = 'deleted'
+                    
+                    # Obtener el contenido del archivo si existe y no es binario
+                    content = ""
+                    abs_path = os.path.join(self.repo_path, file_path)
+                    try:
+                        if os.path.exists(abs_path) and not self.is_binary_file(abs_path) and event_type != 'deleted':
+                            with open(abs_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                    except Exception as e:
+                        logger.warning(f"No se pudo leer el contenido de {file_path}: {e}")
+                    
+                    staged_files.append({
+                        'type': 'staged_change',
+                        'path': file_path,
+                        'event_type': event_type,
+                        'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'status': status,
+                        'content': content[:1000] if content else "",  # Limitar el contenido a 1000 caracteres
+                        'description': self.get_status_description(status)
+                    })
+            
+            return staged_files
+        except Exception as e:
+            logger.error(f"Error al verificar cambios en staging area: {e}")
+            return []

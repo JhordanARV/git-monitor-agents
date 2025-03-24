@@ -126,6 +126,17 @@ class CommitMessageGenerator(BaseModule):
             if event_data.get('event_type') in ['modified', 'created', 'deleted']:
                 return self._process_local_change(event_data)
             
+            # Verificar si es un evento de archivos en staging
+            elif event_data.get('type') == 'staged_files' and 'files' in event_data:
+                logger.info(f"Procesando evento de archivos en staging: {len(event_data['files'])} archivos")
+                staged_files = []
+                for file_data in event_data['files']:
+                    staged_files.append({
+                        'path': file_data['path'],
+                        'event_type': file_data['event_type']
+                    })
+                return self._process_staged_files(staged_files, event_data.get('repo_path'))
+            
             # Verificar si es un commit
             elif 'id' in event_data and 'message' in event_data:
                 # No procesamos commits existentes, solo cambios locales
@@ -459,12 +470,13 @@ class CommitMessageGenerator(BaseModule):
         else:
             return 'modified'
     
-    def _process_staged_files(self, staged_files):
+    def _process_staged_files(self, staged_files, repo_path=None):
         """
         Procesa una lista de archivos en stage y genera un mensaje de commit.
         
         Args:
             staged_files (list): Lista de diccionarios con información de archivos en stage.
+            repo_path (str, opcional): Ruta del repositorio Git.
             
         Returns:
             dict: Resultado del procesamiento.
@@ -497,7 +509,7 @@ class CommitMessageGenerator(BaseModule):
             body_lines = [changes_included_text]
             
             # Obtener la ruta del repositorio desde la configuración
-            repo_path = self.config.get('repo_path', '.')
+            repo_path = repo_path or self.config.get('repo_path', '.')
             
             if self.summarize_changes:
                 # Generar un resumen de los cambios

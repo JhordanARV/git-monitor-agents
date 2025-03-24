@@ -10,6 +10,7 @@ from src.slack_notifier import SlackNotifier
 from src.module_manager import ModuleManager
 from src.interfaces.web_ui import init_app, start_server
 import threading
+from datetime import datetime
 
 # Configurar logging
 logging.basicConfig(
@@ -99,16 +100,11 @@ def main():
                             
                             # Enviar resultados a Slack
                             if results:
-                                message = "*Análisis de commit:*\n"
-                                message += f"Commit: {commit.get('id', 'N/A')}\n"
-                                message += f"Autor: {commit.get('author', 'N/A')}\n\n"
-                                
                                 for result in results:
-                                    module_name = result.get('module', 'Desconocido')
-                                    summary = result.get('summary', 'Sin resumen disponible')
-                                    message += f"*{module_name}*: {summary}\n"
-                                
-                                slack_notifier.send_message(message)
+                                    if result and 'module' in result:
+                                        module_name = result['module']
+                                        logger.info(f"Enviando resultados de {module_name} a Slack")
+                                        slack_notifier.send_message(f"📊 Resultados de {module_name} para commit {commit['sha'][:7]}:\n```\n{result.get('summary', 'Sin resumen')}\n```")
                     
                     if 'local_changes' in changes:
                         local_changes = changes['local_changes']
@@ -123,16 +119,34 @@ def main():
                             
                             # Enviar resultados a Slack
                             if results:
-                                message = "*Análisis de cambio local:*\n"
-                                message += f"Archivo: {change.get('path', 'N/A')}\n"
-                                message += f"Tipo: {change.get('event_type', 'N/A')}\n\n"
-                                
                                 for result in results:
-                                    module_name = result.get('module', 'Desconocido')
-                                    summary = result.get('summary', 'Sin resumen disponible')
-                                    message += f"*{module_name}*: {summary}\n"
-                                
-                                slack_notifier.send_message(message)
+                                    if result and 'module' in result:
+                                        module_name = result['module']
+                                        logger.info(f"Enviando resultados de {module_name} a Slack para cambios locales")
+                                        slack_notifier.send_message(f"📝 Resultados de {module_name} para cambios locales:\n```\n{result.get('summary', 'Sin resumen')}\n```")
+                    
+                    # Procesar cambios en el área de staging
+                    if 'staged' in changes and changes['staged']:
+                        logger.info(f"Procesando {len(changes['staged'])} archivos en staging area")
+                        
+                        # Crear un evento para todos los archivos en staging
+                        staged_event = {
+                            'type': 'staged_files',
+                            'files': changes['staged'],
+                            'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            'repo_path': repo_path
+                        }
+                        
+                        # Procesar con todos los módulos
+                        results = module_manager.process_event(staged_event)
+                        
+                        # Enviar resultados a Slack
+                        if results:
+                            for result in results:
+                                if result and 'module' in result:
+                                    module_name = result['module']
+                                    logger.info(f"Enviando resultados de {module_name} a Slack para cambios en staging")
+                                    slack_notifier.send_message(f"📝 Resultados de {module_name} para cambios en staging:\n```\n{result.get('summary', 'Sin resumen')}\n```")
                 else:
                     logger.debug("No se detectaron cambios")
             except Exception as e:

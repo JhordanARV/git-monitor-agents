@@ -48,7 +48,7 @@ El proyecto Git Monitor utiliza las siguientes tecnologías:
 
 1. Clona el repositorio:
 ```bash
-git clone https://github.com/tu-usuario/git-monitor.git
+git clone https://github.com/JhordanARV/git-monitor.git
 cd git-monitor
 ```
 
