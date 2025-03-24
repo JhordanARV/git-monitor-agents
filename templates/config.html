@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Git Monitor - Configuración</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .module-card {
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+        .module-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        .card-header {
+            font-weight: bold;
+        }
+        .enabled-badge {
+            float: right;
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+        <header class="pb-3 mb-4 border-bottom">
+            <div class="d-flex align-items-center">
+                <span class="fs-4">Git Monitor - Panel de Configuración</span>
+            </div>
+        </header>
+
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-header">Configuración General</div>
+                    <div class="card-body">
+                        <form id="core-config-form">
+                            <div class="mb-3">
+                                <label for="repo_path" class="form-label">Ruta del Repositorio</label>
+                                <input type="text" class="form-control" id="repo_path" name="repo_path" 
+                                       value="{{ current_config.get('core', {}).get('repo_path', '') }}">
+                            </div>
+                            <div class="mb-3">
+                                <label for="branch" class="form-label">Rama</label>
+                                <input type="text" class="form-control" id="branch" name="branch"
+                                       value="{{ current_config.get('core', {}).get('branch', 'main') }}">
+                            </div>
+                            <div class="mb-3">
+                                <label for="poll_interval" class="form-label">Intervalo de Verificación (segundos)</label>
+                                <input type="number" class="form-control" id="poll_interval" name="poll_interval"
+                                       value="{{ current_config.get('core', {}).get('poll_interval', 300) }}">
+                            </div>
+                            <div class="mb-3">
+                                <label for="ai_provider" class="form-label">Proveedor de IA</label>
+                                <select class="form-select" id="ai_provider" name="ai_provider">
+                                    <option value="openai" {% if current_config.get('core', {}).get('ai_provider') == 'openai' %}selected{% endif %}>OpenAI</option>
+                                    <option value="claude" {% if current_config.get('core', {}).get('ai_provider') == 'claude' %}selected{% endif %}>Claude</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Guardar Configuración</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-8">
+                <h3>Módulos Disponibles</h3>
+                <div class="row">
+                    {% for name, module_class in modules.items() %}
+                    <div class="col-md-6">
+                        <div class="card module-card">
+                            <div class="card-header">
+                                {{ name }}
+                                {% set enabled = current_config.get('modules', {}).get(name, {}).get('enabled', True) %}
+                                <span class="badge {% if enabled %}bg-success{% else %}bg-secondary{% endif %} enabled-badge">
+                                    {% if enabled %}Activo{% else %}Inactivo{% endif %}
+                                </span>
+                            </div>
+                            <div class="card-body">
+                                <p>{{ module_class.__doc__ }}</p>
+                                <a href="/module/{{ name }}" class="btn btn-outline-primary">Configurar</a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('core-config-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Recopilar datos del formulario
+            const formData = new FormData(this);
+            const coreConfig = {
+                core: {
+                    repo_path: formData.get('repo_path'),
+                    branch: formData.get('branch'),
+                    poll_interval: parseInt(formData.get('poll_interval')),
+                    ai_provider: formData.get('ai_provider')
+                }
+            };
+            
+            // Enviar configuración al servidor
+            fetch('/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(coreConfig)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('Configuración guardada correctamente');
+                } else {
+                    alert('Error al guardar la configuración');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error al guardar la configuración');
+            });
+        });
+    </script>
+</body>
+</html>

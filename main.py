@@ -3,10 +3,13 @@ import time
 import schedule
 import logging
 import sys
+import argparse
 from dotenv import load_dotenv
 from src.git_monitor import GitMonitor
-from src.crew_analyzer import CrewAnalyzer
 from src.slack_notifier import SlackNotifier
+from src.module_manager import ModuleManager
+from src.interfaces.web_ui import init_app, start_server
+import threading
 
 # Configurar logging
 logging.basicConfig(
@@ -25,16 +28,42 @@ load_dotenv()
 
 def main():
     try:
+        # Parsear argumentos de línea de comandos
+        parser = argparse.ArgumentParser(description='Git Monitor con arquitectura modular')
+        parser.add_argument('--config', type=str, default='config.yaml', help='Ruta al archivo de configuración')
+        parser.add_argument('--web', action='store_true', help='Iniciar interfaz web de configuración')
+        parser.add_argument('--web-port', type=int, default=5000, help='Puerto para la interfaz web')
+        args = parser.parse_args()
+        
         logger.info("Iniciando el monitor de Git...")
+        
+        # Inicializar el gestor de módulos
+        logger.info(f"Cargando configuración desde {args.config}")
+        module_manager = ModuleManager(args.config)
+        
+        # Iniciar interfaz web si se solicita
+        if args.web:
+            logger.info(f"Iniciando interfaz web en puerto {args.web_port}")
+            app = init_app(args.config)
+            web_thread = threading.Thread(
+                target=start_server,
+                kwargs={'host': '0.0.0.0', 'port': args.web_port, 'debug': False}
+            )
+            web_thread.daemon = True
+            web_thread.start()
+            logger.info(f"Interfaz web disponible en http://localhost:{args.web_port}")
+        
+        # Obtener configuración
+        config = module_manager.config_manager.get_config()
+        repo_path = config.get('core', {}).get('repo_path', os.getenv('REPO_PATH'))
+        branch = config.get('core', {}).get('branch', os.getenv('REPO_BRANCH', 'main'))
+        poll_interval = config.get('core', {}).get('poll_interval', 300)
         
         # Initialize components
         git_monitor = GitMonitor(
-            repo_path=os.getenv('REPO_PATH'),
-            branch=os.getenv('REPO_BRANCH', 'main')
+            repo_path=repo_path,
+            branch=branch
         )
-        
-        logger.info("Inicializando CrewAnalyzer...")
-        crew_analyzer = CrewAnalyzer()
         
         logger.info("Inicializando SlackNotifier...")
         slack_notifier = SlackNotifier(
@@ -58,41 +87,52 @@ def main():
                     logger.info(f"Cambios detectados: {changes.keys()}")
                     logger.debug(f"Contenido de cambios: {changes}")
                     
-                    # Analyze changes with CrewAI
+                    # Procesar cambios con los módulos
                     if 'commits' in changes:
-                        logger.info(f"Analizando {len(changes['commits'])} commits nuevos")
-                        try:
-                            commit_analysis = crew_analyzer.analyze_changes(changes['commits'])
-                            if commit_analysis:
-                                logger.info("Enviando análisis de commits a Slack")
-                                slack_notifier.send_message("*Nuevos commits detectados:*\n" + commit_analysis)
-                            else:
-                                logger.error("El análisis de commits retornó None")
-                        except Exception as e:
-                            logger.exception("Error analizando commits")
+                        logger.info(f"Procesando {len(changes['commits'])} commits nuevos")
+                        for commit in changes['commits']:
+                            # Añadir información del repositorio
+                            commit['repo_path'] = repo_path
+                            
+                            # Procesar con todos los módulos
+                            results = module_manager.process_event(commit)
+                            
+                            # Enviar resultados a Slack
+                            if results:
+                                message = "*Análisis de commit:*\n"
+                                message += f"Commit: {commit.get('id', 'N/A')}\n"
+                                message += f"Autor: {commit.get('author', 'N/A')}\n\n"
+                                
+                                for result in results:
+                                    module_name = result.get('module', 'Desconocido')
+                                    summary = result.get('summary', 'Sin resumen disponible')
+                                    message += f"*{module_name}*: {summary}\n"
+                                
+                                slack_notifier.send_message(message)
                     
                     if 'local_changes' in changes:
                         local_changes = changes['local_changes']
-                        logger.info(f"Analizando {len(local_changes)} cambios locales")
-                        logger.debug(f"Cambios locales: {local_changes}")
+                        logger.info(f"Procesando {len(local_changes)} cambios locales")
                         
-                        # Si hay error en el análisis, usar el fallback
-                        try:
-                            local_analysis = crew_analyzer.analyze_changes(local_changes)
-                            if not local_analysis:
-                                logger.warning("Análisis retornó None, usando fallback")
-                                local_analysis = crew_analyzer.fallback_analysis(local_changes)
-                        except Exception as e:
-                            logger.exception("Error en análisis, usando fallback")
-                            local_analysis = crew_analyzer.fallback_analysis(local_changes)
+                        for change in local_changes:
+                            # Añadir información del repositorio
+                            change['repo_path'] = repo_path
                             
-                        if local_analysis:
-                            logger.info("Enviando análisis de cambios locales a Slack")
-                            message = "*Cambios locales detectados:*\n" + local_analysis
-                            if not slack_notifier.send_message(message):
-                                logger.error("Error enviando mensaje a Slack")
-                        else:
-                            logger.error("No se pudo obtener análisis ni fallback para cambios locales")
+                            # Procesar con todos los módulos
+                            results = module_manager.process_event(change)
+                            
+                            # Enviar resultados a Slack
+                            if results:
+                                message = "*Análisis de cambio local:*\n"
+                                message += f"Archivo: {change.get('path', 'N/A')}\n"
+                                message += f"Tipo: {change.get('event_type', 'N/A')}\n\n"
+                                
+                                for result in results:
+                                    module_name = result.get('module', 'Desconocido')
+                                    summary = result.get('summary', 'Sin resumen disponible')
+                                    message += f"*{module_name}*: {summary}\n"
+                                
+                                slack_notifier.send_message(message)
                 else:
                     logger.debug("No se detectaron cambios")
             except Exception as e:
@@ -103,9 +143,9 @@ def main():
         logger.info("Monitoreo de archivos iniciado")
 
         try:
-            # Schedule the job to run every 5 minutes
-            schedule.every(5).minutes.do(check_and_notify)
-            logger.info("Programador configurado para revisar cada 5 minutos")
+            # Schedule the job to run based on config
+            schedule.every(poll_interval).seconds.do(check_and_notify)
+            logger.info(f"Programador configurado para revisar cada {poll_interval} segundos")
 
             # Run first check immediately
             logger.info("Ejecutando primera verificación...")

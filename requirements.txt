@@ -8,3 +8,5 @@ openai>=1.10.0
 langchain-openai>=0.0.5
 langchain-anthropic>=0.1.1
 watchdog>=3.0.0
+flask>=2.3.0
+pyyaml>=6.0.0

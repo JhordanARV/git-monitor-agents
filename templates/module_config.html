@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Git Monitor - Configuración de Módulo</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container py-4">
+        <header class="pb-3 mb-4 border-bottom">
+            <div class="d-flex align-items-center">
+                <a href="/" class="text-decoration-none me-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-left" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+                    </svg>
+                    Volver
+                </a>
+                <span class="fs-4">Configuración de Módulo: {{ module_name }}</span>
+            </div>
+        </header>
+
+        <div class="row">
+            <div class="col-md-8 offset-md-2">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>{{ module_name }}</h5>
+                        <p class="text-muted mb-0">{{ module_description }}</p>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST">
+                            {% for key, item in schema.items() %}
+                            <div class="mb-3">
+                                {% if item.type == 'boolean' %}
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="{{ key }}" name="{{ key }}"
+                                           {% if config.get(key, item.get('default', False)) %}checked{% endif %}>
+                                    <label class="form-check-label" for="{{ key }}">
+                                        {{ item.description }}
+                                    </label>
+                                </div>
+                                {% elif item.type == 'string' and item.get('enum') %}
+                                <label for="{{ key }}" class="form-label">{{ item.description }}</label>
+                                <select class="form-select" id="{{ key }}" name="{{ key }}">
+                                    {% for option in item.enum %}
+                                    <option value="{{ option }}" {% if config.get(key) == option %}selected{% endif %}>
+                                        {{ option }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                {% elif item.type == 'array' %}
+                                <label class="form-label">{{ item.description }}</label>
+                                <div class="card p-3">
+                                    {% for option in ['python', 'javascript', 'typescript', 'java', 'csharp', 'php', 'ruby', 'go'] %}
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="{{ key }}_{{ option }}" 
+                                               name="{{ key }}" value="{{ option }}"
+                                               {% if option in config.get(key, item.get('default', [])) %}checked{% endif %}>
+                                        <label class="form-check-label" for="{{ key }}_{{ option }}">
+                                            {{ option }}
+                                        </label>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% else %}
+                                <label for="{{ key }}" class="form-label">{{ item.description }}</label>
+                                <input type="{{ 'number' if item.type == 'integer' else 'text' }}" 
+                                       class="form-control" id="{{ key }}" name="{{ key }}"
+                                       value="{{ config.get(key, item.get('default', '')) }}">
+                                {% endif %}
+                                
+                                {% if item.get('description') and item.type != 'boolean' %}
+                                <div class="form-text">{{ item.description }}</div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                            
+                            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                <a href="/" class="btn btn-secondary me-md-2">Cancelar</a>
+                                <button type="submit" class="btn btn-primary">Guardar Configuración</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

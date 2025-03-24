@@ -1,0 +1,28 @@
+core:
+  repo_path: "."
+  branch: "master"
+  poll_interval: 300
+  ai_provider: "openai"
+
+modules:
+  DocstringGenerator:
+    format: "google"
+    languages:
+      - "python"
+      - "javascript"
+    enabled: true
+  
+  ImpactAnalyzer:
+    risk_threshold: "medium"
+    analyze_dependencies: true
+    suggest_tests: true
+    enabled: true
+  
+  CodeReviewer:
+    review_types:
+      - "quality"
+      - "security"
+      - "performance"
+    suggest_fixes: true
+    severity_threshold: "low"
+    enabled: true
