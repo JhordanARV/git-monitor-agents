@@ -2,3 +2,10 @@
 /venv
 git_monitor.log
 /src/__pycache__
+/src/modules/*/__pycache__
+/src/modules/*/*/__pycache__
+/src/utils/__pycache__
+/src/interfaces/__pycache__
+/src/core/__pycache__
+logs.txt
+git_monitor.log

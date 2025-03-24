@@ -10,6 +10,7 @@ import difflib
 from collections import defaultdict
 from src.core.base_module import BaseModule
 from src.core.module_registry import ModuleRegistry
+from src.utils.ai_provider import AIProvider
 import json
 
 logger = logging.getLogger(__name__)
@@ -32,11 +33,26 @@ class CommitMessageGenerator(BaseModule):
         """
         super().__init__(config)
         self.convention = self.config.get('convention', 'conventional')
-        self.language = self.config.get('language', 'spanish')
         self.include_scope = self.config.get('include_scope', True)
+        
+        # Asegurarse de que max_length sea un entero
+        max_length = self.config.get('max_length', 72)
+        self.max_length = int(max_length) if isinstance(max_length, str) else max_length
+        
+        self.language = self.config.get('language', 'english')
+        self.use_ai = self.config.get('use_ai', False)
+        
+        # Inicializar LLM si se va a usar IA
+        if self.use_ai and self.is_enabled():
+            try:
+                self.llm = AIProvider.get_llm(self.config)
+                logger.info(f"LLM inicializado para {self.__class__.__name__}")
+            except Exception as e:
+                logger.error(f"Error al inicializar LLM: {e}")
+                self.llm = None
+        
         self.include_body = self.config.get('include_body', True)
         self.include_footer = self.config.get('include_footer', False)
-        self.max_length = int(self.config.get('max_length', 72))
         self.summarize_changes = self.config.get('summarize_changes', False)
         self.analyze_content = self.config.get('analyze_content', False)
         
@@ -103,6 +119,11 @@ class CommitMessageGenerator(BaseModule):
             'analyze_content': {
                 'type': 'boolean',
                 'description': 'Analizar el contenido de los archivos para generar el mensaje de commit',
+                'default': False
+            },
+            'use_ai': {
+                'type': 'boolean',
+                'description': 'Usar inteligencia artificial para mejorar la generación de mensajes',
                 'default': False
             }
         }
@@ -792,3 +813,195 @@ class CommitMessageGenerator(BaseModule):
                     break
         
         return content_type
+
+    def _generate_commit_message_for_changes(self, changes, repo_path=None):
+        """
+        Genera un mensaje de commit para un conjunto de cambios.
+        
+        Args:
+            changes (list): Lista de cambios para los que generar el mensaje.
+            repo_path (str, opcional): Ruta al repositorio.
+            
+        Returns:
+            dict: Mensaje de commit generado.
+        """
+        if not changes:
+            return {
+                'title': 'No hay cambios para generar un mensaje',
+                'body': '',
+                'footer': ''
+            }
+            
+        # Si está habilitada la IA, usarla para generar el mensaje
+        if self.use_ai and hasattr(self, 'llm') and self.llm:
+            return self._generate_commit_message_with_ai(changes, repo_path)
+            
+        # Generar mensaje basado en reglas si no se usa IA
+        num_files = len(changes)
+        
+        # Determinar el tipo de cambio predominante
+        change_types = [change.get('event_type', 'modified') for change in changes]
+        predominant_type = max(set(change_types), key=change_types.count)
+        
+        # Determinar el alcance (scope) basado en directorios comunes
+        scope = self._determine_scope(changes)
+        
+        # Generar título
+        if num_files == 1:
+            # Para un solo archivo, generar un mensaje específico
+            change = changes[0]
+            title = self._generate_title(change.get('path', ''), change.get('event_type', 'modified'), scope)
+        else:
+            # Para múltiples archivos, generar un mensaje general
+            if self.language == 'spanish':
+                title = f"{self._get_change_type(predominant_type)}: modificar {num_files} archivos"
+                if scope and self.include_scope:
+                    title = f"{self._get_change_type(predominant_type)}({scope}): modificar {num_files} archivos"
+            else:
+                title = f"{self._get_change_type(predominant_type)}: update {num_files} files"
+                if scope and self.include_scope:
+                    title = f"{self._get_change_type(predominant_type)}({scope}): update {num_files} files"
+        
+        # Generar cuerpo
+        body = ""
+        if self.include_body:
+            for change in changes:
+                path = change.get('path', '')
+                event_type = change.get('event_type', 'modified')
+                content = change.get('content', '')
+                body += self._generate_body(path, event_type, content) + "\n"
+        
+        # Generar pie
+        footer = ""
+        if self.include_footer:
+            footer = self._generate_footer(changes)
+            
+        return {
+            'title': title,
+            'body': body.strip(),
+            'footer': footer.strip()
+        }
+        
+    def _generate_commit_message_with_ai(self, changes, repo_path=None):
+        """
+        Genera un mensaje de commit utilizando IA.
+        
+        Args:
+            changes (list): Lista de cambios para los que generar el mensaje.
+            repo_path (str, opcional): Ruta al repositorio.
+            
+        Returns:
+            dict: Mensaje de commit generado con IA.
+        """
+        try:
+            # Formatear los cambios para el análisis
+            formatted_changes = self._format_changes_for_ai(changes, repo_path)
+            
+            # Crear el prompt para la IA
+            prompt = f"""
+            Genera un mensaje de commit para los siguientes cambios:
+            
+            {formatted_changes}
+            
+            El mensaje debe seguir la convención: {self.convention}
+            Idioma: {self.language}
+            
+            Formato de respuesta:
+            {{
+                "title": "Título del commit",
+                "body": "Cuerpo del mensaje (descripción detallada)",
+                "footer": "Pie del mensaje (referencias, notas adicionales)"
+            }}
+            
+            Responde SOLO con el JSON, sin texto adicional.
+            """
+            
+            # Obtener respuesta de la IA
+            response = self.llm.invoke(prompt)
+            
+            # Intentar parsear la respuesta como JSON
+            try:
+                import json
+                import re
+                
+                # Extraer JSON de la respuesta
+                json_match = re.search(r'```json\n(.*?)\n```', response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                else:
+                    json_str = response
+                
+                # Limpiar la cadena JSON
+                json_str = re.sub(r'^```.*\n', '', json_str)
+                json_str = re.sub(r'\n```$', '', json_str)
+                
+                result = json.loads(json_str)
+                
+                # Verificar que el resultado tenga los campos necesarios
+                if 'title' not in result:
+                    result['title'] = "Cambios en el código"
+                if 'body' not in result:
+                    result['body'] = ""
+                if 'footer' not in result:
+                    result['footer'] = ""
+                    
+                # Limitar longitud del título
+                if len(result['title']) > self.max_length:
+                    result['title'] = result['title'][:self.max_length-3] + "..."
+                    
+                return result
+                
+            except Exception as e:
+                logger.error(f"Error al parsear la respuesta de la IA: {e}")
+                logger.debug(f"Respuesta recibida: {response}")
+                
+                # Fallback: extraer título y cuerpo manualmente
+                lines = response.strip().split('\n')
+                title = lines[0] if lines else "Cambios en el código"
+                body = "\n".join(lines[1:]) if len(lines) > 1 else ""
+                
+                return {
+                    'title': title[:self.max_length] if len(title) > self.max_length else title,
+                    'body': body,
+                    'footer': ""
+                }
+                
+        except Exception as e:
+            logger.error(f"Error al generar mensaje con IA: {e}")
+            # Fallback al método tradicional
+            return self._generate_commit_message_for_changes(changes, repo_path)
+            
+    def _format_changes_for_ai(self, changes, repo_path=None):
+        """
+        Formatea los cambios para el análisis con IA.
+        
+        Args:
+            changes (list): Lista de cambios.
+            repo_path (str, opcional): Ruta al repositorio.
+            
+        Returns:
+            str: Cambios formateados para el análisis.
+        """
+        formatted = ""
+        
+        for i, change in enumerate(changes):
+            path = change.get('path', '')
+            event_type = change.get('event_type', 'modified')
+            
+            formatted += f"Cambio {i+1}:\n"
+            formatted += f"  Archivo: {path}\n"
+            formatted += f"  Tipo de cambio: {event_type}\n"
+            
+            # Si hay contenido disponible, añadirlo
+            content = change.get('content', '')
+            if content and self.analyze_content:
+                formatted += f"  Contenido:\n{content}\n"
+                
+            # Si hay diff disponible, añadirlo
+            diff = change.get('diff', '')
+            if diff:
+                formatted += f"  Diff:\n{diff}\n"
+                
+            formatted += "\n"
+            
+        return formatted

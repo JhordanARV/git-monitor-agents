@@ -4,6 +4,11 @@ core:
   poll_interval: 300
   repo_path: C:\\Users\\developer\\Documents\\workspace\\wekall\\chatcenter-we
 modules:
+  AIAnalyzer:
+    enabled: true
+    openai_model: gpt-3.5-turbo
+    temperature: 0
+    verbose: true
   CodeReviewer:
     enabled: true
     review_types:
@@ -12,6 +17,7 @@ modules:
     - typescript
     severity_threshold: low
     suggest_fixes: true
+    use_ai: true
   CommitMessageGenerator:
     analyze_content: true
     convention: custom
@@ -23,6 +29,7 @@ modules:
     language: english
     max_length: '72'
     summarize_changes: true
+    use_ai: true
   DocstringGenerator:
     enabled: true
     format: google
@@ -30,8 +37,10 @@ modules:
     - python
     - javascript
     - typescript
+    use_ai: true
   ImpactAnalyzer:
     analyze_dependencies: true
     enabled: true
     risk_threshold: medium
     suggest_tests: true
+    use_ai: true

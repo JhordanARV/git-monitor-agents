@@ -3,6 +3,7 @@ import re
 import logging
 from src.core.base_module import BaseModule
 from src.core.module_registry import ModuleRegistry
+from src.utils.ai_provider import AIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,21 @@ class ImpactAnalyzer(BaseModule):
             config (dict, opcional): Configuración del módulo. Por defecto es None.
         """
         super().__init__(config)
-        self.risk_threshold = self.config.get('risk_threshold', 'medium')
+        self.risk_levels = self.config.get('risk_levels', ['high', 'medium', 'low'])
         self.analyze_dependencies = self.config.get('analyze_dependencies', True)
+        self.analyze_test_coverage = self.config.get('analyze_test_coverage', True)
+        self.use_ai = self.config.get('use_ai', False)
+        
+        # Inicializar LLM si se va a usar IA
+        if self.use_ai and self.is_enabled():
+            try:
+                self.llm = AIProvider.get_llm(self.config)
+                logger.info(f"LLM inicializado para {self.__class__.__name__}")
+            except Exception as e:
+                logger.error(f"Error al inicializar LLM: {e}")
+                self.llm = None
+                
+        self.risk_threshold = self.config.get('risk_threshold', 'medium')
         self.suggest_tests = self.config.get('suggest_tests', True)
         
     def process(self, event_data):
@@ -318,6 +332,255 @@ class ImpactAnalyzer(BaseModule):
         # Si todos los impactos son bajos, el impacto general es bajo
         return 'low'
     
+    def _analyze_impact(self, changes, repo_path):
+        """
+        Analiza el impacto de los cambios en el repositorio.
+        
+        Args:
+            changes (list): Lista de cambios para analizar.
+            repo_path (str): Ruta al repositorio.
+            
+        Returns:
+            dict: Resultado del análisis de impacto.
+        """
+        if not changes:
+            return {
+                'risk_level': 'low',
+                'summary': 'No hay cambios para analizar',
+                'affected_areas': [],
+                'suggested_tests': []
+            }
+            
+        # Si está habilitada la IA, usarla para el análisis
+        if self.use_ai and hasattr(self, 'llm') and self.llm:
+            return self._analyze_impact_with_ai(changes, repo_path)
+            
+        # Análisis basado en reglas si no se usa IA
+        affected_areas = []
+        risk_scores = []
+        
+        for change in changes:
+            path = change.get('path', '')
+            event_type = change.get('event_type', 'modified')
+            content = change.get('content', '')
+            
+            # Analizar el impacto de cada cambio
+            impact = self._analyze_file_impact(path, event_type, content, repo_path)
+            affected_areas.extend(impact.get('affected_areas', []))
+            risk_scores.append(impact.get('risk_score', 0))
+            
+        # Eliminar duplicados en áreas afectadas
+        affected_areas = list({area['name']: area for area in affected_areas}.values())
+        
+        # Calcular nivel de riesgo general
+        avg_risk = sum(risk_scores) / len(risk_scores) if risk_scores else 0
+        risk_level = self._determine_risk_level(avg_risk)
+        
+        # Sugerir pruebas si está habilitado
+        suggested_tests = []
+        if self.suggest_tests:
+            suggested_tests = self._suggest_tests(affected_areas, repo_path)
+            
+        return {
+            'risk_level': risk_level,
+            'summary': self._generate_impact_summary(risk_level, affected_areas),
+            'affected_areas': affected_areas,
+            'suggested_tests': suggested_tests
+        }
+        
+    def _analyze_impact_with_ai(self, changes, repo_path):
+        """
+        Analiza el impacto de los cambios utilizando IA.
+        
+        Args:
+            changes (list): Lista de cambios para analizar.
+            repo_path (str): Ruta al repositorio.
+            
+        Returns:
+            dict: Resultado del análisis de impacto con IA.
+        """
+        try:
+            # Formatear los cambios para el análisis
+            formatted_changes = self._format_changes_for_ai(changes, repo_path)
+            
+            # Crear el prompt para la IA
+            prompt = f"""
+            Analiza el impacto potencial de los siguientes cambios en el código:
+            
+            {formatted_changes}
+            
+            Considera los siguientes aspectos en tu análisis:
+            - Nivel de riesgo (alto, medio, bajo)
+            - Áreas del código afectadas
+            - Posibles efectos secundarios
+            - Pruebas recomendadas
+            
+            Por favor, proporciona tu análisis en el siguiente formato JSON:
+            
+            ```json
+            {{
+                "risk_level": "high|medium|low",
+                "summary": "Resumen del análisis de impacto",
+                "affected_areas": [
+                    {{
+                        "name": "nombre_del_área",
+                        "impact": "descripción_del_impacto",
+                        "risk_score": valor_numérico_entre_0_y_10
+                    }}
+                ],
+                "suggested_tests": [
+                    "descripción_de_prueba_recomendada"
+                ]
+            }}
+            ```
+            
+            Responde SOLO con el JSON, sin texto adicional.
+            """
+            
+            # Obtener respuesta de la IA
+            response = self.llm.invoke(prompt)
+            
+            # Intentar parsear la respuesta como JSON
+            try:
+                import json
+                import re
+                
+                # Extraer JSON de la respuesta
+                json_match = re.search(r'```json\n(.*?)\n```', response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                else:
+                    json_str = response
+                
+                # Limpiar la cadena JSON
+                json_str = re.sub(r'^```.*\n', '', json_str)
+                json_str = re.sub(r'\n```$', '', json_str)
+                
+                result = json.loads(json_str)
+                
+                # Verificar que el resultado tenga los campos necesarios
+                if 'risk_level' not in result:
+                    result['risk_level'] = 'medium'
+                if 'summary' not in result:
+                    result['summary'] = "Análisis de impacto generado por IA"
+                if 'affected_areas' not in result:
+                    result['affected_areas'] = []
+                if 'suggested_tests' not in result:
+                    result['suggested_tests'] = []
+                    
+                return result
+                
+            except Exception as e:
+                logger.error(f"Error al parsear la respuesta de la IA: {e}")
+                logger.debug(f"Respuesta recibida: {response}")
+                
+                # Fallback: crear un resultado básico
+                return {
+                    'risk_level': 'medium',
+                    'summary': "Error al procesar el análisis con IA. Se recomienda revisar manualmente.",
+                    'affected_areas': [],
+                    'suggested_tests': []
+                }
+                
+        except Exception as e:
+            logger.error(f"Error al analizar impacto con IA: {e}")
+            # Fallback al método tradicional
+            return self._analyze_impact(changes, repo_path)
+            
+    def _format_changes_for_ai(self, changes, repo_path):
+        """
+        Formatea los cambios para el análisis con IA.
+        
+        Args:
+            changes (list): Lista de cambios.
+            repo_path (str): Ruta al repositorio.
+            
+        Returns:
+            str: Cambios formateados para el análisis.
+        """
+        formatted = ""
+        
+        # Información del repositorio
+        formatted += f"Repositorio: {os.path.basename(repo_path)}\n\n"
+        
+        # Información de los cambios
+        for i, change in enumerate(changes):
+            path = change.get('path', '')
+            event_type = change.get('event_type', 'modified')
+            
+            formatted += f"Cambio {i+1}:\n"
+            formatted += f"  Archivo: {path}\n"
+            formatted += f"  Tipo de cambio: {event_type}\n"
+            
+            # Si hay contenido disponible, añadirlo
+            content = change.get('content', '')
+            if content:
+                # Limitar el contenido para no sobrecargar el prompt
+                max_content_length = 1000
+                if len(content) > max_content_length:
+                    content_preview = content[:max_content_length//2] + "\n...\n" + content[-max_content_length//2:]
+                    formatted += f"  Contenido (truncado):\n{content_preview}\n"
+                else:
+                    formatted += f"  Contenido:\n{content}\n"
+                    
+            # Si hay diff disponible, añadirlo
+            diff = change.get('diff', '')
+            if diff:
+                # Limitar el diff para no sobrecargar el prompt
+                max_diff_length = 1000
+                if len(diff) > max_diff_length:
+                    diff_preview = diff[:max_diff_length//2] + "\n...\n" + diff[-max_diff_length//2:]
+                    formatted += f"  Diff (truncado):\n{diff_preview}\n"
+                else:
+                    formatted += f"  Diff:\n{diff}\n"
+                    
+            formatted += "\n"
+            
+        # Añadir información sobre dependencias si está habilitado
+        if self.analyze_dependencies:
+            dependencies = self._get_dependencies(changes, repo_path)
+            if dependencies:
+                formatted += "Dependencias detectadas:\n"
+                for dep in dependencies:
+                    formatted += f"  - {dep}\n"
+                formatted += "\n"
+                
+        # Añadir información sobre cobertura de pruebas si está habilitado
+        if self.analyze_test_coverage:
+            test_coverage = self._get_test_coverage(changes, repo_path)
+            if test_coverage:
+                formatted += f"Cobertura de pruebas: {test_coverage}%\n\n"
+                
+        return formatted
+    
+    def _get_dependencies(self, changes, repo_path):
+        # Implementación de ejemplo para obtener dependencias
+        # En una implementación real, se analizaría el código para encontrar dependencias
+        return []
+    
+    def _get_test_coverage(self, changes, repo_path):
+        # Implementación de ejemplo para obtener cobertura de pruebas
+        # En una implementación real, se analizaría el código y se buscarían pruebas existentes
+        return 0
+    
+    def _suggest_tests(self, affected_areas, repo_path):
+        # Implementación de ejemplo para sugerir pruebas
+        # En una implementación real, se analizaría el código y se buscarían pruebas existentes
+        return []
+    
+    def _generate_impact_summary(self, risk_level, affected_areas):
+        # Implementación de ejemplo para generar resumen del impacto
+        return f"Impacto {risk_level} detectado en {len(affected_areas)} áreas"
+    
+    def _determine_risk_level(self, avg_risk):
+        # Implementación de ejemplo para determinar nivel de riesgo
+        if avg_risk > 5:
+            return 'high'
+        elif avg_risk > 2:
+            return 'medium'
+        else:
+            return 'low'
+    
     @classmethod
     def get_config_schema(cls):
         """
@@ -347,5 +610,10 @@ class ImpactAnalyzer(BaseModule):
                 'type': 'boolean',
                 'default': True,
                 'description': 'Activar/desactivar este módulo'
+            },
+            'use_ai': {
+                'type': 'boolean',
+                'default': False,
+                'description': 'Usar inteligencia artificial para el análisis'
             }
         }

@@ -3,6 +3,7 @@ import re
 import logging
 from src.core.base_module import BaseModule
 from src.core.module_registry import ModuleRegistry
+from src.utils.ai_provider import AIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,16 @@ class DocstringGenerator(BaseModule):
         super().__init__(config)
         self.doc_format = self.config.get('format', 'google')
         self.target_langs = self.config.get('languages', ['python', 'javascript'])
-        self.llm = None  # Se inicializará bajo demanda
+        self.use_ai = self.config.get('use_ai', False)
+        
+        # Inicializar LLM si se va a usar IA
+        if self.use_ai and self.is_enabled():
+            try:
+                self.llm = AIProvider.get_llm(self.config)
+                logger.info(f"LLM inicializado para {self.__class__.__name__}")
+            except Exception as e:
+                logger.error(f"Error al inicializar LLM: {e}")
+                self.llm = None
         
     def process(self, event_data):
         """
@@ -71,7 +81,7 @@ class DocstringGenerator(BaseModule):
             }
             
         # Generar docstrings para las funciones/clases sin documentar
-        generated_docs = self._generate_docstrings(content, missing_docs, lang)
+        generated_docs = self._generate_docstrings(missing_docs, content, lang)
         
         return {
             'module': self.name,
@@ -211,18 +221,22 @@ class DocstringGenerator(BaseModule):
                 
         return '\n'.join(body_lines)
     
-    def _generate_docstrings(self, content, missing_docs, lang):
+    def _generate_docstrings(self, missing_docs, content, lang):
         """
-        Genera docstrings para las funciones/clases sin documentar.
+        Genera docstrings para los elementos que carecen de documentación.
         
         Args:
+            missing_docs (list): Lista de elementos sin documentación.
             content (str): Contenido del archivo.
-            missing_docs (list): Lista de funciones/clases sin documentar.
             lang (str): Lenguaje de programación.
             
         Returns:
             list: Lista de docstrings generados.
         """
+        # Si está habilitada la IA, usarla para generar docstrings
+        if self.use_ai and hasattr(self, 'llm') and self.llm:
+            return self._generate_docstrings_with_ai(missing_docs, content, lang)
+            
         # En una implementación real, aquí se usaría el LLM para generar los docstrings
         # Por ahora, generamos docstrings de ejemplo
         generated = []
@@ -244,6 +258,122 @@ class DocstringGenerator(BaseModule):
                 })
                 
         return generated
+        
+    def _generate_docstrings_with_ai(self, missing_docs, content, lang):
+        """
+        Genera docstrings utilizando IA para los elementos que carecen de documentación.
+        
+        Args:
+            missing_docs (list): Lista de elementos sin documentación.
+            content (str): Contenido del archivo.
+            lang (str): Lenguaje de programación.
+            
+        Returns:
+            list: Lista de docstrings generados con IA.
+        """
+        try:
+            # Preparar el contexto para la IA
+            context = self._prepare_context_for_ai(missing_docs, content, lang)
+            
+            # Crear el prompt para la IA
+            prompt = f"""
+            Genera docstrings para el siguiente código en {lang}:
+            
+            {context}
+            
+            Formato de docstring: {self.doc_format}
+            
+            Por favor, proporciona los docstrings en el siguiente formato JSON:
+            
+            ```json
+            [
+                {{
+                    "type": "function|class",
+                    "name": "nombre_del_elemento",
+                    "docstring": "docstring generado"
+                }}
+            ]
+            ```
+            
+            Responde SOLO con el JSON, sin texto adicional.
+            """
+            
+            # Obtener respuesta de la IA
+            response = self.llm.invoke(prompt)
+            
+            # Intentar parsear la respuesta como JSON
+            try:
+                import json
+                import re
+                
+                # Extraer JSON de la respuesta
+                json_match = re.search(r'```json\n(.*?)\n```', response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                else:
+                    json_str = response
+                
+                # Limpiar la cadena JSON
+                json_str = re.sub(r'^```.*\n', '', json_str)
+                json_str = re.sub(r'\n```$', '', json_str)
+                
+                result = json.loads(json_str)
+                
+                # Verificar que el resultado sea una lista
+                if not isinstance(result, list):
+                    logger.error("La respuesta de la IA no es una lista")
+                    return self._generate_docstrings(missing_docs, content, lang)
+                    
+                # Verificar que cada elemento tenga los campos necesarios
+                for item in result:
+                    if 'type' not in item or 'name' not in item or 'docstring' not in item:
+                        logger.error(f"Elemento de la respuesta de la IA no tiene los campos necesarios: {item}")
+                        return self._generate_docstrings(missing_docs, content, lang)
+                
+                return result
+                
+            except Exception as e:
+                logger.error(f"Error al parsear la respuesta de la IA: {e}")
+                logger.debug(f"Respuesta recibida: {response}")
+                
+                # Fallback al método tradicional
+                return self._generate_docstrings(missing_docs, content, lang)
+                
+        except Exception as e:
+            logger.error(f"Error al generar docstrings con IA: {e}")
+            # Fallback al método tradicional
+            return self._generate_docstrings(missing_docs, content, lang)
+            
+    def _prepare_context_for_ai(self, missing_docs, content, lang):
+        """
+        Prepara el contexto para la IA, extrayendo las partes relevantes del código.
+        
+        Args:
+            missing_docs (list): Lista de elementos sin documentación.
+            content (str): Contenido del archivo.
+            lang (str): Lenguaje de programación.
+            
+        Returns:
+            str: Contexto formateado para la IA.
+        """
+        lines = content.split('\n')
+        context = ""
+        
+        for item in missing_docs:
+            start_line = item.get('start_line', 0)
+            end_line = item.get('end_line', len(lines) - 1)
+            
+            # Añadir algunas líneas de contexto antes y después
+            context_start = max(0, start_line - 5)
+            context_end = min(len(lines) - 1, end_line + 5)
+            
+            # Extraer el fragmento de código
+            code_snippet = "\n".join(lines[context_start:context_end+1])
+            
+            context += f"\n\n--- {item['type'].upper()}: {item['name']} ---\n"
+            context += code_snippet
+            
+        return context
     
     def _generate_function_docstring(self, func_info, lang):
         """
@@ -321,6 +451,11 @@ class DocstringGenerator(BaseModule):
                 'items': {'type': 'string'},
                 'default': ['python', 'javascript'],
                 'description': 'Lenguajes para los que generar docstrings'
+            },
+            'use_ai': {
+                'type': 'boolean',
+                'default': False,
+                'description': 'Activar/desactivar el uso de IA para generar docstrings'
             },
             'enabled': {
                 'type': 'boolean',
