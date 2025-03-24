@@ -109,6 +109,16 @@ modules:
     suggest_fixes: true
     severity_threshold: "low"
     enabled: true
+  
+  CommitMessageGenerator:
+    convention: "conventional"
+    language: "spanish"
+    include_scope: true
+    include_body: true
+    include_footer: true
+    max_length: 50
+    custom_template: ""
+    enabled: true
 ```
 
 ## Ejecución
@@ -172,6 +182,34 @@ Revisa automáticamente el código y proporciona sugerencias de mejora.
 - `suggest_fixes`: Sugerir correcciones
 - `severity_threshold`: Umbral de severidad
 - `enabled`: Activar/desactivar el módulo
+
+### 4. Generador de Mensajes de Commit (CommitMessageGenerator)
+
+Genera automáticamente mensajes de commit estructurados basados en los cambios detectados.
+
+**Configuración:**
+- `convention`: Convención a utilizar (conventional, gitmoji, simple, custom)
+- `language`: Idioma para los mensajes (spanish, english)
+- `include_scope`: Incluir el alcance en el mensaje
+- `include_body`: Incluir cuerpo detallado en el mensaje
+- `include_footer`: Incluir pie de página con referencias
+- `max_length`: Longitud máxima del título del commit
+- `custom_template`: Plantilla personalizada (solo para convención custom)
+- `enabled`: Activar/desactivar el módulo
+
+**Ejemplo de mensaje generado (conventional):**
+```
+feat(ui): añadir login.html
+
+Se ha creado el archivo src/templates/login.html.
+```
+
+**Ejemplo de mensaje generado (gitmoji):**
+```
+✨ añadir login.html
+
+Se ha creado el archivo src/templates/login.html.
+```
 
 ## Interfaz Web
 

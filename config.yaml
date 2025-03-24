@@ -1,28 +1,34 @@
 core:
-  repo_path: "."
-  branch: "master"
+  ai_provider: openai
+  branch: master
   poll_interval: 300
-  ai_provider: "openai"
-
+  repo_path: .
 modules:
-  DocstringGenerator:
-    format: "google"
-    languages:
-      - "python"
-      - "javascript"
-    enabled: true
-  
-  ImpactAnalyzer:
-    risk_threshold: "medium"
-    analyze_dependencies: true
-    suggest_tests: true
-    enabled: true
-  
   CodeReviewer:
-    review_types:
-      - "quality"
-      - "security"
-      - "performance"
-    suggest_fixes: true
-    severity_threshold: "low"
     enabled: true
+    review_types:
+    - quality
+    - security
+    - performance
+    severity_threshold: low
+    suggest_fixes: true
+  CommitMessageGenerator:
+    convention: conventional
+    custom_template: '{type}: {message}'
+    enabled: true
+    include_body: true
+    include_footer: false
+    include_scope: true
+    language: english
+    max_length: '72'
+  DocstringGenerator:
+    enabled: true
+    format: google
+    languages:
+    - python
+    - javascript
+  ImpactAnalyzer:
+    analyze_dependencies: true
+    enabled: true
+    risk_threshold: medium
+    suggest_tests: true
