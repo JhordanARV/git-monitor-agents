@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Git Monitor{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <header>
+        <h1>Git Monitor</h1>
+    </header>
+    
+    <div class="container">
+        <nav>
+            <a href="/" {% if request.path == '/' %}class="active"{% endif %}>Inicio</a>
+            <a href="/commit-messages" {% if request.path == '/commit-messages' %}class="active"{% endif %}>Mensajes de Commit</a>
+        </nav>
+        
+        {% block content %}{% endblock %}
+    </div>
+    
+    <footer>
+        <p>Git Monitor - Sistema de Monitoreo con Arquitectura Modular</p>
+    </footer>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

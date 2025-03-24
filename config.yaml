@@ -1,8 +1,8 @@
 core:
   ai_provider: openai
-  branch: master
+  branch: main
   poll_interval: 300
-  repo_path: .
+  repo_path: C:\\Users\\developer\\Documents\\workspace\\wekall\\chatcenter-we
 modules:
   CodeReviewer:
     enabled: true
@@ -13,14 +13,16 @@ modules:
     severity_threshold: low
     suggest_fixes: true
   CommitMessageGenerator:
-    convention: conventional
+    analyze_content: true
+    convention: custom
     custom_template: '{type}: {message}'
     enabled: true
     include_body: true
     include_footer: false
-    include_scope: true
+    include_scope: false
     language: english
     max_length: '72'
+    summarize_changes: true
   DocstringGenerator:
     enabled: true
     format: google

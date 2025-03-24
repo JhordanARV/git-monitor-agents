@@ -103,6 +103,66 @@ def module_config(module_name):
                           schema=schema,
                           config=module_config)
 
+@app.route('/commit-messages', methods=['GET'])
+def commit_messages():
+    """Página para generar y mostrar mensajes de commit."""
+    # Obtener los últimos mensajes generados (si existen)
+    return render_template('commit_messages.html')
+
+@app.route('/api/generate-commit-message', methods=['POST'])
+def generate_commit_message():
+    """API para generar un mensaje de commit manualmente."""
+    try:
+        # Obtener datos del formulario
+        source_type = request.form.get('source_type', 'file')
+        file_path = request.form.get('file_path', '')
+        event_type = request.form.get('event_type', 'modified')
+        
+        # Obtener la ruta del repositorio desde la configuración
+        repo_path = config_manager.get_config().get('core', {}).get('repo_path', '.')
+        
+        # Obtener instancia del generador de mensajes
+        commit_generator_class = ModuleRegistry.get_module('CommitMessageGenerator')
+        
+        if not commit_generator_class:
+            return jsonify({'error': 'Módulo CommitMessageGenerator no encontrado'}), 404
+            
+        # Crear instancia con la configuración
+        module_config = config_manager.get_module_config('CommitMessageGenerator')
+        commit_generator = commit_generator_class(module_config)
+        
+        # Generar mensaje según el tipo de origen
+        if source_type == 'file':
+            if not file_path:
+                return jsonify({'error': 'Se requiere la ruta del archivo'}), 400
+                
+            # Crear evento simulado para un archivo específico
+            event_data = {
+                'path': file_path,
+                'event_type': event_type,
+                'content': '',  # No tenemos contenido real aquí
+                'repo_path': repo_path
+            }
+            
+            # Generar mensaje para un archivo específico
+            result = commit_generator.process(event_data)
+            
+        else:  # source_type == 'staged'
+            # Generar mensaje para cambios en stage
+            result = commit_generator.process_staged_changes(repo_path)
+        
+        if not result or not result.get('success'):
+            return jsonify({'error': 'Error al generar mensaje de commit'}), 500
+            
+        return jsonify({
+            'message': result.get('commit_message', ''),
+            'summary': result.get('summary', '')
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error al generar mensaje de commit: {e}")
+        return jsonify({'error': str(e)}), 500
+
 def start_server(host='0.0.0.0', port=5000, debug=False):
     """
     Inicia el servidor web.

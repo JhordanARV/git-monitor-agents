@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+
+{% block title %}Generador de Mensajes de Commit - Git Monitor{% endblock %}
+
+{% block extra_css %}
+<style>
+    .commit-message {
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        margin-top: 20px;
+        font-family: monospace;
+        white-space: pre-wrap;
+    }
+    .copy-button {
+        background-color: #28a745;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-top: 10px;
+    }
+    .copy-button:hover {
+        background-color: #218838;
+    }
+    .event-type-selector {
+        display: flex;
+        margin-bottom: 15px;
+    }
+    .event-type-option {
+        margin-right: 15px;
+        cursor: pointer;
+    }
+    .event-type-option input {
+        margin-right: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="module-card">
+    <h2>Generar Mensaje de Commit</h2>
+    <p>Genera mensajes de commit automáticamente basados en los cambios en archivos.</p>
+    
+    <form id="generate-form">
+        <div class="form-group">
+            <label for="file-path">Ruta del archivo:</label>
+            <input type="text" id="file-path" name="file_path" required 
+                   placeholder="Ejemplo: src/modules/nuevo_modulo.py">
+        </div>
+        
+        <div class="form-group">
+            <label>Tipo de cambio:</label>
+            <div class="event-type-selector">
+                <label class="event-type-option">
+                    <input type="radio" name="event_type" value="created" checked>
+                    Creado
+                </label>
+                <label class="event-type-option">
+                    <input type="radio" name="event_type" value="modified">
+                    Modificado
+                </label>
+                <label class="event-type-option">
+                    <input type="radio" name="event_type" value="deleted">
+                    Eliminado
+                </label>
+            </div>
+        </div>
+        
+        <button type="submit" id="generate-button">Generar Mensaje</button>
+    </form>
+    
+    <div id="result" style="display: none;">
+        <h3>Mensaje Generado:</h3>
+        <div id="commit-message" class="commit-message"></div>
+        <button id="copy-button" class="copy-button">Copiar al Portapapeles</button>
+    </div>
+    
+    <div id="error-message" class="alert alert-danger" style="display: none;"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('generate-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const filePath = document.getElementById('file-path').value;
+        const eventType = document.querySelector('input[name="event_type"]:checked').value;
+        
+        // Mostrar indicador de carga
+        document.getElementById('generate-button').textContent = 'Generando...';
+        document.getElementById('generate-button').disabled = true;
+        document.getElementById('result').style.display = 'none';
+        document.getElementById('error-message').style.display = 'none';
+        
+        // Crear FormData
+        const formData = new FormData();
+        formData.append('file_path', filePath);
+        formData.append('event_type', eventType);
+        
+        // Enviar solicitud
+        fetch('/api/generate-commit-message', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Restablecer botón
+            document.getElementById('generate-button').textContent = 'Generar Mensaje';
+            document.getElementById('generate-button').disabled = false;
+            
+            if (data.error) {
+                // Mostrar error
+                document.getElementById('error-message').textContent = data.error;
+                document.getElementById('error-message').style.display = 'block';
+            } else {
+                // Mostrar mensaje generado
+                document.getElementById('commit-message').textContent = data.message;
+                document.getElementById('result').style.display = 'block';
+            }
+        })
+        .catch(error => {
+            // Restablecer botón y mostrar error
+            document.getElementById('generate-button').textContent = 'Generar Mensaje';
+            document.getElementById('generate-button').disabled = false;
+            document.getElementById('error-message').textContent = 'Error al generar mensaje: ' + error;
+            document.getElementById('error-message').style.display = 'block';
+        });
+    });
+    
+    // Copiar al portapapeles
+    document.getElementById('copy-button').addEventListener('click', function() {
+        const message = document.getElementById('commit-message').textContent;
+        navigator.clipboard.writeText(message).then(() => {
+            const originalText = this.textContent;
+            this.textContent = '¡Copiado!';
+            setTimeout(() => {
+                this.textContent = originalText;
+            }, 2000);
+        });
+    });
+</script>
+{% endblock %}
